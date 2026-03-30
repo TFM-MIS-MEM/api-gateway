@@ -1,0 +1,62 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: auth-service
+    url: http://auth:3000
+    routes:
+      - name: auth-route
+        paths:
+          - /v1/auth
+
+  - name: pricing-service
+    url: http://pricing:3000
+    routes:
+      - name: pricing-route
+        paths:
+          - /v1/pricing
+
+  - name: commercial-api
+    url: http://commercial-api:8000
+    routes:
+      - name: commercial-route
+        paths:
+          - /v1/commercial
+    plugins:
+      - name: space-auth
+
+  - name: research-api
+    url: http://research-api:8000
+    routes:
+      - name: research-route
+        paths:
+          - /v1/research
+    plugins:
+      - name: space-auth
+
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - Authorization
+      credentials: true
+      max_age: 3600
