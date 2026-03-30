@@ -8,9 +8,11 @@ return {
     { config = {
         type = "record",
         fields = {
-          -- Aquí definimos los campos de configuración que el plugin aceptará en kong.yml
-          { jwt_secret = { type = "string", required = false } },
-          { space_public_key = { type = "string", required = false } }
+          -- Endpoint interno del microservicio de Auth para validar la API KEY
+          { auth_endpoint = { type = "string", default = "http://auth:3000/v1/auth/validate-key" } },
+          -- Secretos de SPACE para verificar la firma del Pricing Token
+          { jwt_secret = { type = "string", required = true } },
+          { jwt_salt = { type = "string", required = true } }
         },
       },
     },
