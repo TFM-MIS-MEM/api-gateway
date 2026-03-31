@@ -1,0 +1,63 @@
+# ===========================================================
+# API Gateway — Kong — Entorno de Desarrollo Local
+#
+# Red: tfm-network (externa, creada por scripts/dev-up.ps1)
+#
+# Uso independiente:
+#   docker network create tfm-network   # solo la primera vez
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Via script de orquestación:
+#   ..\scripts\dev-up.ps1
+#
+# Puertos expuestos:
+#   8000 → Proxy HTTP  (curl http://localhost:8000/api/v1/...)
+#   8443 → Proxy HTTPS
+#   8001 → Admin API   (solo desarrollo)
+# ===========================================================
+
+version: "3.9"
+
+services:
+
+  # -----------------------------------------------------------
+  # KONG API GATEWAY — db-less, plugin space-auth
+  # -----------------------------------------------------------
+  kong:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kong-gateway
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: "/usr/local/kong/declarative/kong.yml"
+      KONG_PROXY_ACCESS_LOG: "/dev/stdout"
+      KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
+      KONG_PROXY_ERROR_LOG: "/dev/stderr"
+      KONG_ADMIN_ERROR_LOG: "/dev/stderr"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001, 0.0.0.0:8444 ssl"
+      KONG_PLUGINS: "bundled,space-auth"
+    ports:
+      - "8000:8000"   # Proxy HTTP
+      - "8443:8443"   # Proxy HTTPS
+      - "8001:8001"   # Admin API (deshabilitar en producción)
+      - "8444:8444"   # Admin HTTPS
+    volumes:
+      - ./kong.yml:/usr/local/kong/declarative/kong.yml:ro
+    networks:
+      - tfm-network
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+# -----------------------------------------------------------
+# NETWORKS — Externa (compartida entre microservicios)
+# -----------------------------------------------------------
+networks:
+  tfm-network:
+    external: true
+    name: tfm-network

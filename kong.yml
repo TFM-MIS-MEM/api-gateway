@@ -2,37 +2,46 @@ _format_version: "3.0"
 _transform: true
 
 services:
+  # Auth Microservice — rutas disponibles: /api/v1/auth/register, /api/v1/auth/login
   - name: auth-service
-    url: http://auth:3000
+    url: http://auth-service:3000
     routes:
       - name: auth-route
         paths:
-          - /v1/auth
+          - /api/v1/auth
+          - /api/v1/docs
+        strip_path: false
 
-  - name: pricing-service
-    url: http://pricing:3000
-    routes:
-      - name: pricing-route
-        paths:
-          - /v1/pricing
+  # Pricing Microservice — pendiente de implementación (Issue 6)
+  # - name: pricing-service
+  #   url: http://pricing-service:3000
+  #   routes:
+  #     - name: pricing-route
+  #       paths:
+  #         - /api/v1/pricing
+  #       strip_path: false
 
-  - name: commercial-api
-    url: http://commercial-api:8000
-    routes:
-      - name: commercial-route
-        paths:
-          - /v1/commercial
-    plugins:
-      - name: space-auth
+  # Commercial FR API — pendiente de implementación (Issue 12)
+  # - name: commercial-api
+  #   url: http://commercial-api:8000
+  #   routes:
+  #     - name: commercial-route
+  #       paths:
+  #         - /api/v1/commercial
+  #       strip_path: false
+  #   plugins:
+  #     - name: space-auth
 
-  - name: research-api
-    url: http://research-api:8000
-    routes:
-      - name: research-route
-        paths:
-          - /v1/research
-    plugins:
-      - name: space-auth
+  # Research API — pendiente de implementación (Issue 13-15)
+  # - name: research-api
+  #   url: http://research-api:8000
+  #   routes:
+  #     - name: research-route
+  #       paths:
+  #         - /api/v1/research
+  #       strip_path: false
+  #   plugins:
+  #     - name: space-auth
 
 plugins:
   - name: rate-limiting

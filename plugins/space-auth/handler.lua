@@ -1,4 +1,4 @@
-local jwt = require "resty.jwt"
+local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
 local http = require "resty.http"
 local cjson = require "cjson.safe"
 
@@ -48,13 +48,18 @@ function SpaceAuthHandler:access(conf)
   -- SPACE utiliza una combinación de secret + salt para firmar sus JWTs
   local combined_secret = conf.jwt_secret .. conf.jwt_salt
   
-  local jwt_obj = jwt:verify(combined_secret, token)
-  if not jwt_obj.verified then
-    kong.log.err("Firma de Pricing Token inválida: ", jwt_obj.reason)
+  local jwt_obj, err = jwt_decoder:new(token)
+  if err or type(jwt_obj) ~= "table" then
+    kong.log.err("Error al parsear token: ", err)
+    return kong.response.exit(403, { message = "Pricing Token estructuralmente inválido" })
+  end
+
+  if not jwt_obj:verify_signature(combined_secret) then
+    kong.log.err("Firma de Pricing Token inválida")
     return kong.response.exit(403, { message = "Pricing Token inválido o manipulado" })
   end
   
-  local payload = jwt_obj.payload
+  local payload = jwt_obj.claims
 
   -- 4. Inyección de Headers para los microservicios internos (Reconocimiento Facial)
   -- Extraemos los datos clave del token de SPACE (asumiendo la estructura estándar de pricing4ts)
