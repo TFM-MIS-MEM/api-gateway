@@ -31,6 +31,10 @@ services:
   #       strip_path: false
   #   plugins:
   #     - name: space-auth
+  #       config:
+  #         internal_secret: "${{env.KONG_INTERNAL_API_SECRET}}"
+  #         jwt_secret: "pricing_secret_placeholder"
+  #         jwt_salt: "pricing_salt_placeholder"
 
   # Research API — pendiente de implementación (Issue 13-15)
   # - name: research-api
@@ -42,6 +46,10 @@ services:
   #       strip_path: false
   #   plugins:
   #     - name: space-auth
+  #       config:
+  #         internal_secret: "${{env.KONG_INTERNAL_API_SECRET}}"
+  #         jwt_secret: "pricing_secret_placeholder"
+  #         jwt_salt: "pricing_salt_placeholder"
 
 plugins:
   - name: rate-limiting

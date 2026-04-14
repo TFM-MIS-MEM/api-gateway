@@ -35,20 +35,21 @@ services:
       KONG_PROXY_ACCESS_LOG: "/dev/stdout"
       KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
       KONG_PROXY_ERROR_LOG: "/dev/stderr"
-      KONG_ADMIN_ERROR_LOG: "/dev/stderr"
       KONG_ADMIN_LISTEN: "0.0.0.0:8001, 0.0.0.0:8444 ssl"
       KONG_PLUGINS: "bundled,space-auth"
+    env_file:
+      - .env
     ports:
-      - "8000:8000"   # Proxy HTTP
-      - "8443:8443"   # Proxy HTTPS
-      - "8001:8001"   # Admin API (deshabilitar en producción)
-      - "8444:8444"   # Admin HTTPS
+      - "8000:8000" # Proxy HTTP
+      - "8443:8443" # Proxy HTTPS
+      - "8001:8001" # Admin API (deshabilitar en producción)
+      - "8444:8444" # Admin HTTPS
     volumes:
       - ./kong.yml:/usr/local/kong/declarative/kong.yml:ro
     networks:
       - tfm-network
     healthcheck:
-      test: ["CMD", "kong", "health"]
+      test: [ "CMD", "kong", "health" ]
       interval: 10s
       timeout: 5s
       retries: 5

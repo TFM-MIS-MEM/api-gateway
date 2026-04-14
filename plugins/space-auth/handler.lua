@@ -18,9 +18,10 @@ function SpaceAuthHandler:access(conf)
   local httpc = http.new()
   local res, err = httpc:request_uri(conf.auth_endpoint, {
     method = "POST",
-    body = cjson.encode({ api_key = api_key }),
+    body = cjson.encode({ apiKey = api_key }),
     headers = {
       ["Content-Type"] = "application/json",
+      ["x-internal-secret"] = conf.internal_secret,
     },
     keepalive_timeout = 60000,
     keepalive_pool = 10
