@@ -2,24 +2,23 @@ _format_version: "3.0"
 _transform: true
 
 services:
-  # Auth Microservice — rutas disponibles: /api/v1/auth/register, /api/v1/auth/login
+  # Auth Microservice — rutas disponibles: /api/v1/auth/register, /api/v1/auth/login, /api/v1/auth/docs
   - name: auth-service
     url: http://auth-service:3000
     routes:
       - name: auth-route
         paths:
           - /api/v1/auth
-          - /api/v1/docs
         strip_path: false
 
-  # Pricing Microservice — pendiente de implementación (Issue 6)
-  # - name: pricing-service
-  #   url: http://pricing-service:3000
-  #   routes:
-  #     - name: pricing-route
-  #       paths:
-  #         - /api/v1/pricing
-  #       strip_path: false
+  # Pricing Microservice
+  - name: pricing-service
+    url: http://pricing-service:3000
+    routes:
+      - name: pricing-route
+        paths:
+          - /api/v1/pricing
+        strip_path: false
 
   # Commercial FR API — pendiente de implementación (Issue 12)
   # - name: commercial-api
