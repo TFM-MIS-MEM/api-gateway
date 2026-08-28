@@ -11,7 +11,7 @@
 #   ..\scripts\dev-up.ps1
 #
 # Puertos expuestos:
-#   8000 → Proxy HTTP  (curl http://localhost:8000/api/v1/...)
+#   8000 → Proxy HTTP  (curl http://localhost:8000/v1/...)
 #   8443 → Proxy HTTPS
 #   8001 → Admin API   (solo desarrollo)
 # ===========================================================

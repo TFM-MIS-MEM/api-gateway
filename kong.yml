@@ -2,13 +2,13 @@ _format_version: "3.0"
 _transform: true
 
 services:
-  # Auth Microservice — rutas disponibles: /api/v1/auth/register, /api/v1/auth/login, /api/v1/auth/docs
+  # Auth Microservice — rutas disponibles: /v1/auth/register, /v1/auth/login, /v1/auth/...
   - name: auth-service
     url: http://auth-service:3000
     routes:
       - name: auth-route
         paths:
-          - /api/v1/auth
+          - /v1/auth
         strip_path: false
 
   # Pricing Microservice
@@ -17,7 +17,7 @@ services:
     routes:
       - name: pricing-route
         paths:
-          - /api/v1/pricing
+          - /v1/pricing
         strip_path: false
 
   # Commercial FR API — pendiente de implementación (Issue 12)
@@ -26,22 +26,7 @@ services:
   #   routes:
   #     - name: commercial-route
   #       paths:
-  #         - /api/v1/commercial
-  #       strip_path: false
-  #   plugins:
-  #     - name: space-auth
-  #       config:
-  #         internal_secret: "${{env.KONG_INTERNAL_API_SECRET}}"
-  #         jwt_secret: "pricing_secret_placeholder"
-  #         jwt_salt: "pricing_salt_placeholder"
-
-  # Research API — pendiente de implementación (Issue 13-15)
-  # - name: research-api
-  #   url: http://research-api:8000
-  #   routes:
-  #     - name: research-route
-  #       paths:
-  #         - /api/v1/research
+  #         - /v1/fr/commercial
   #       strip_path: false
   #   plugins:
   #     - name: space-auth
