@@ -8,19 +8,20 @@
 #
 #   docker compose -f docker-compose.test.yml up -d
 #
-# La ruta de Kong hacia este servicio NO se declara en kong.yml: se empuja al
-# vuelo por la Admin API sobre la configuración declarativa, y al terminar se
-# restaura la del repositorio, de modo que ninguna ruta de prueba sobrevive a
-# la sesión:
+# No se usa a mano: lo levanta `tests/identity-headers.sh`, que publica la ruta
+# de eco combinando kong.yml con tests/echo-route.yml, ejecuta las
+# comprobaciones y restaura kong.yml al salir —también si el test falla—, de
+# modo que ninguna ruta de prueba sobrevive a la ejecución.
 #
-#   cat kong.yml <(sed 's/^/  /' echo-service.snippet) > /tmp/kong.test.yml
-#   curl -X POST localhost:8001/config -F config=@/tmp/kong.test.yml
-#   ...pruebas...
-#   curl -X POST localhost:8001/config -F config=@kong.yml   # restaurar
+#   ./tests/identity-headers.sh
 #
 # Se usa node:20-alpine porque ya está en la caché local: una imagen de eco
 # dedicada obligaría a descargar de un registro público en mitad de la prueba.
 # ===========================================================
+
+# Proyecto propio: compartirlo con docker-compose.dev.yml haría que cada
+# `up`/`down` de uno considerara huérfanos los contenedores del otro.
+name: api-gateway-test
 
 services:
 

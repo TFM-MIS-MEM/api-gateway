@@ -129,6 +129,5 @@ plugins:
         - Content-Type
         - Date
         - Authorization
-        - X-API-Key
       credentials: true
       max_age: 3600
