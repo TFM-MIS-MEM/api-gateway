@@ -1,0 +1,45 @@
+# ===========================================================
+# Utilidades de prueba de extremo a extremo — NO forma parte del despliegue
+#
+# `echo-service` devuelve en el cuerpo el método, la ruta y TODAS las cabeceras
+# que recibe. Es lo que permite comprobar afirmaciones que de otro modo no son
+# observables: que la pasarela borra las cabeceras de identidad que envía el
+# cliente, y que escribe las suyas con el valor correcto.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#
+# La ruta de Kong hacia este servicio NO se declara en kong.yml: se empuja al
+# vuelo por la Admin API sobre la configuración declarativa, y al terminar se
+# restaura la del repositorio, de modo que ninguna ruta de prueba sobrevive a
+# la sesión:
+#
+#   cat kong.yml <(sed 's/^/  /' echo-service.snippet) > /tmp/kong.test.yml
+#   curl -X POST localhost:8001/config -F config=@/tmp/kong.test.yml
+#   ...pruebas...
+#   curl -X POST localhost:8001/config -F config=@kong.yml   # restaurar
+#
+# Se usa node:20-alpine porque ya está en la caché local: una imagen de eco
+# dedicada obligaría a descargar de un registro público en mitad de la prueba.
+# ===========================================================
+
+services:
+
+  echo:
+    image: node:20-alpine
+    container_name: echo-service
+    restart: unless-stopped
+    command:
+      - node
+      - -e
+      - |
+        require('http').createServer((req, res) => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ method: req.method, url: req.url, headers: req.headers }));
+        }).listen(8080);
+    networks:
+      - tfm-network
+
+networks:
+  tfm-network:
+    external: true
+    name: tfm-network
