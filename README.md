@@ -60,6 +60,13 @@ revocación de hasta 60 minutos del JWT.
 
 ## Pruebas de extremo a extremo
 
+`tests/cors-preflight.sh` comprueba el preflight CORS de las cuatro rutas sin
+tocar la configuración. Un preflight no lleva credenciales: si el plugin de
+autenticación se ejecutara antes que el de CORS lo respondería con `401` y
+ningún navegador podría llamar a la API, aunque desde la terminal todo pareciera
+correcto. Fija además que `X-API-Key` **no** está entre las cabeceras
+permitidas, para que revertir esa decisión sea deliberado.
+
 `docker-compose.test.yml` levanta `echo-service`, que devuelve las cabeceras que
 recibe. Es lo que permite comprobar que la pasarela borra las cabeceras de
 identidad del cliente y escribe las suyas. Su ruta de Kong no vive en
