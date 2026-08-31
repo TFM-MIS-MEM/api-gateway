@@ -1,0 +1,46 @@
+# ===========================================================
+# Utilidades de prueba de extremo a extremo — NO forma parte del despliegue
+#
+# `echo-service` devuelve en el cuerpo el método, la ruta y TODAS las cabeceras
+# que recibe. Es lo que permite comprobar afirmaciones que de otro modo no son
+# observables: que la pasarela borra las cabeceras de identidad que envía el
+# cliente, y que escribe las suyas con el valor correcto.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#
+# No se usa a mano: lo levanta `tests/identity-headers.sh`, que publica la ruta
+# de eco combinando kong.yml con tests/echo-route.yml, ejecuta las
+# comprobaciones y restaura kong.yml al salir —también si el test falla—, de
+# modo que ninguna ruta de prueba sobrevive a la ejecución.
+#
+#   ./tests/identity-headers.sh
+#
+# Se usa node:20-alpine porque ya está en la caché local: una imagen de eco
+# dedicada obligaría a descargar de un registro público en mitad de la prueba.
+# ===========================================================
+
+# Proyecto propio: compartirlo con docker-compose.dev.yml haría que cada
+# `up`/`down` de uno considerara huérfanos los contenedores del otro.
+name: api-gateway-test
+
+services:
+
+  echo:
+    image: node:20-alpine
+    container_name: echo-service
+    restart: unless-stopped
+    command:
+      - node
+      - -e
+      - |
+        require('http').createServer((req, res) => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ method: req.method, url: req.url, headers: req.headers }));
+        }).listen(8080);
+    networks:
+      - tfm-network
+
+networks:
+  tfm-network:
+    external: true
+    name: tfm-network

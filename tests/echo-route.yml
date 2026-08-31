@@ -1,0 +1,38 @@
+# Fragmento de configuración que solo existe durante las pruebas de extremo a
+# extremo. `tests/identity-headers.sh` lo concatena a kong.yml, empuja el
+# resultado por la Admin API y restaura kong.yml al terminar, de modo que
+# ninguna ruta de prueba llega al despliegue.
+#
+# Se declara aparte, y no dentro de kong.yml comentado, para que no haya dos
+# copias de la misma configuración que puedan divergir.
+
+  - name: echo-service
+    url: http://echo-service:8080
+    routes:
+
+      # Equivale a las rutas que NO llevan space-auth —las públicas de auth y el
+      # receptor de Stripe—: comprueba el saneado declarativo.
+      - name: echo-public-route
+        paths:
+          - /v1/echo-public
+        strip_path: false
+        plugins:
+          - name: request-transformer
+            config:
+              remove:
+                headers:
+                  - X-Account-Id
+                  - X-Auth-Channel
+                  - X-Role
+
+      # Equivale a pricing-route: comprueba el saneado del plugin.
+      - name: echo-route
+        paths:
+          - /v1/echo
+        strip_path: false
+        plugins:
+          - name: space-auth
+            config:
+              auth_endpoint: http://auth-service:3000/v1/auth/validate-key
+              internal_secret: "{vault://env/space-auth-internal-secret}"
+              jwt_secret: "{vault://env/space-auth-jwt-secret}"

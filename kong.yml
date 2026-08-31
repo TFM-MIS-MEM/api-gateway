@@ -1,24 +1,94 @@
 _format_version: "3.0"
 _transform: true
 
+# Punto de entrada único de la plataforma. Los microservicios no son
+# alcanzables por otra vía, de modo que la identidad que llega en X-Account-Id,
+# X-Auth-Channel y X-Role solo puede haberla escrito esta pasarela.
+#
+# Los secretos se resuelven con el vault de entorno: el nombre del recurso pasa
+# a mayúsculas cambiando guiones por subrayados, sin prefijo. Kong fotografía
+# `environ` al inicializar el worker, así que un cambio en .env exige recrear el
+# contenedor, no basta `kong reload`. Ver README.md.
+
 services:
-  # Auth Microservice — rutas disponibles: /api/v1/auth/register, /api/v1/auth/login, /api/v1/auth/docs
+
+  # ---------------------------------------------------------------------------
+  # Auth — el registro, el inicio de sesión y la recuperación de contraseña son
+  # públicos, y las operaciones de cuenta las protege el propio servicio con su
+  # JWT. El plugin space-auth NO se aplica aquí: dejaría fuera al registro.
+  # ---------------------------------------------------------------------------
   - name: auth-service
     url: http://auth-service:3000
     routes:
+
+      # POST /v1/auth/validate-key es de uso interno de la pasarela y su
+      # contrato dice que no debe exponerse a través de ella. La ruta es más
+      # larga que /v1/auth, de modo que gana la resolución y corta la petición
+      # antes de que llegue a `auth`.
+      - name: auth-validate-key-route
+        paths:
+          - /v1/auth/validate-key
+        strip_path: false
+        plugins:
+          - name: request-termination
+            config:
+              status_code: 404
+              content_type: application/json
+              body: '{"code":"NOT_FOUND","message":"Not found"}'
+
       - name: auth-route
         paths:
-          - /api/v1/auth
+          - /v1/auth
         strip_path: false
+        plugins:
+          # Sin space-auth delante, nadie borraría aquí las cabeceras de
+          # identidad que enviara el cliente. El saneado es propiedad de la
+          # pasarela, no del plugin: toda ruta que llegue a un backend tiene que
+          # sanearlas, la autentique quien la autentique.
+          - name: request-transformer
+            config:
+              remove:
+                headers:
+                  - X-Account-Id
+                  - X-Auth-Channel
+                  - X-Role
 
-  # Pricing Microservice
+  # ---------------------------------------------------------------------------
+  # Pricing
+  # ---------------------------------------------------------------------------
   - name: pricing-service
     url: http://pricing-service:3000
     routes:
+
+      # El receptor de eventos de Stripe no lleva credencial de la plataforma:
+      # se autentica con la firma del propio evento, que valida el servicio. Con
+      # space-auth delante, Stripe recibiría un 401 por cada entrega.
+      - name: pricing-webhook-route
+        paths:
+          - /v1/pricing/webhooks/stripe
+        strip_path: false
+        plugins:
+          - name: request-transformer
+            config:
+              remove:
+                headers:
+                  - X-Account-Id
+                  - X-Auth-Channel
+                  - X-Role
+
       - name: pricing-route
         paths:
-          - /api/v1/pricing
+          - /v1/pricing
         strip_path: false
+        plugins:
+          - name: space-auth
+            config:
+              auth_endpoint: http://auth-service:3000/v1/auth/validate-key
+              internal_secret: "{vault://env/space-auth-internal-secret}"
+              jwt_secret: "{vault://env/space-auth-jwt-secret}"
+              jwt_issuer: auth-microservice
+              cache_ttl: 60
+              negative_cache_ttl: 10
 
   # Commercial FR API — pendiente de implementación (Issue 12)
   # - name: commercial-api
@@ -26,29 +96,14 @@ services:
   #   routes:
   #     - name: commercial-route
   #       paths:
-  #         - /api/v1/commercial
+  #         - /v1/fr/commercial
   #       strip_path: false
-  #   plugins:
-  #     - name: space-auth
-  #       config:
-  #         internal_secret: "${{env.KONG_INTERNAL_API_SECRET}}"
-  #         jwt_secret: "pricing_secret_placeholder"
-  #         jwt_salt: "pricing_salt_placeholder"
-
-  # Research API — pendiente de implementación (Issue 13-15)
-  # - name: research-api
-  #   url: http://research-api:8000
-  #   routes:
-  #     - name: research-route
-  #       paths:
-  #         - /api/v1/research
-  #       strip_path: false
-  #   plugins:
-  #     - name: space-auth
-  #       config:
-  #         internal_secret: "${{env.KONG_INTERNAL_API_SECRET}}"
-  #         jwt_secret: "pricing_secret_placeholder"
-  #         jwt_salt: "pricing_salt_placeholder"
+  #       plugins:
+  #         - name: space-auth
+  #           config:
+  #             auth_endpoint: http://auth-service:3000/v1/auth/validate-key
+  #             internal_secret: "{vault://env/space-auth-internal-secret}"
+  #             jwt_secret: "{vault://env/space-auth-jwt-secret}"
 
 plugins:
   - name: rate-limiting
