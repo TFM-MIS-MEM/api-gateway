@@ -17,9 +17,22 @@ local cjson = require "cjson.safe"
 
 local kong = kong
 
+-- La prioridad coloca este plugin ENTRE los dos limitadores de la pasarela, y
+-- ese sitio es una decisión, no una casualidad:
+--
+--   cors(2000) → rate-limiting(910) → space-auth(900) → account-rate-limit(890)
+--
+-- Por delante, el limitador de abuso por dirección de origen, que tiene que
+-- contar ANTES de que este plugin rechace: mientras estuvo detrás, una petición
+-- sin credencial válida moría aquí sin consumir cuota y una inundación de API
+-- KEY inventadas llegaba entera hasta `auth`. Por detrás, el limitador por
+-- cuenta, que necesita la identidad que este plugin escribe.
+--
+-- Subir este número por encima de 910 reabre el issue #83. Bajarlo por debajo
+-- de 890 hace que el limitador por cuenta lea la cabecera del cliente.
 local SpaceAuthHandler = {
-  PRIORITY = 1000,
-  VERSION = "2.0.0",
+  PRIORITY = 900,
+  VERSION = "2.1.0",
 }
 
 -- Cabeceras de identidad. Son propiedad exclusiva de la pasarela.
@@ -230,6 +243,15 @@ function SpaceAuthHandler:access(conf)
   kong.service.request.set_header("X-Account-Id", identity.account_id)
   kong.service.request.set_header("X-Auth-Channel", identity.channel)
   kong.service.request.set_header("X-Role", identity.role)
+
+  -- Constancia, para el resto de la cadena, de que la identidad de esta petición
+  -- la ha resuelto la pasarela. `account-rate-limit` la exige antes de contar:
+  -- la cabecera sola no distingue una que ha escrito este plugin de una que ha
+  -- enviado el cliente, y en una ruta donde este plugin no estuviera montado,
+  -- contar por la cabecera sería contar por un valor que el cliente rota a
+  -- voluntad. Esto lo convierte en un error visible en lugar de un límite que
+  -- aparenta contar y no cuenta.
+  kong.ctx.shared.space_auth_account_id = identity.account_id
 end
 
 return SpaceAuthHandler

@@ -90,6 +90,15 @@ services:
               cache_ttl: 60
               negative_cache_ttl: 10
 
+          # Segundo limitador: por cuenta, DETRAS de space-auth (890 < 900). Va
+          # por ruta y no global porque cuenta sobre X-Account-Id, y esa cabecera
+          # solo es de fiar donde space-auth la ha saneado y reescrito. En una
+          # ruta sin space-auth el plugin responde 500 en lugar de contar por
+          # dirección de origen en silencio.
+          - name: account-rate-limit
+            config:
+              minute: 300
+
   # Commercial FR API — pendiente de implementación (Issue 12)
   # - name: commercial-api
   #   url: http://commercial-api:8000
@@ -104,12 +113,40 @@ services:
   #             auth_endpoint: http://auth-service:3000/v1/auth/validate-key
   #             internal_secret: "{vault://env/space-auth-internal-secret}"
   #             jwt_secret: "{vault://env/space-auth-jwt-secret}"
+  #         - name: account-rate-limit
+  #           config:
+  #             minute: 300
 
 plugins:
+
+  # ---------------------------------------------------------------------------
+  # Primer limitador: de abuso, por dirección de origen y DELANTE de la
+  # autenticación (910 > 900). Su cometido es contener la inundación y proteger
+  # a `auth`, no aplicar la oferta comercial: eso es el limitador por cuenta.
+  #
+  # `limit_by: ip` es explícito a propósito. El valor por omisión del esquema es
+  # `consumer`, y como este plugin no registra ningún consumer de Kong, el
+  # identificador caía a la IP por el `or kong.client.get_forwarded_ip()` del
+  # final de `get_identifier`. El comportamiento era el mismo; lo que se elimina
+  # es un respaldo silencioso que nadie había decidido.
+  #
+  # ⚠️ NO configurar KONG_TRUSTED_IPS. `get_forwarded_ip` solo hace caso de
+  # X-Forwarded-For cuando el emisor está en esa lista. Declararla convertiría
+  # la clave de este contador en un valor que escribe el cliente, y bastaría
+  # rotar la cabecera para evadir el límite: el mismo fallo silencioso que el
+  # saneado de identidad evita en el otro limitador. Hay un test que lo fija.
+  #
+  # Política LOCAL: el contador vive en el nodo, no en el clúster. Con varias
+  # réplicas de Kong el límite efectivo se multiplica por el número de réplicas.
+  # Pasarlo a Redis es I6; aquí se deja anotado y no se cambia.
+  #
+  # Ventana FIJA alineada al reloj: admite una ráfaga del doble del límite a
+  # caballo del borde. También lo corrige I6, con ventana deslizante.
   - name: rate-limiting
     config:
-      minute: 100
+      minute: 600
       policy: local
+      limit_by: ip
   - name: cors
     config:
       origins:

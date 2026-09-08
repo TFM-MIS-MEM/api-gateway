@@ -60,8 +60,17 @@ return {
           } },
 
           -- Vigencia del veredicto negativo. Es una optimización de latencia y
-          -- de disponibilidad, no un control de seguridad: la inundación con
-          -- claves inventadas la cubre el límite de peticiones de la pasarela.
+          -- de disponibilidad, no un control de seguridad, y no puede serlo: la
+          -- clave de caché es el resumen de la credencial presentada, de modo
+          -- que cada clave inventada produce una entrada distinta y esta caché
+          -- no absorbe absolutamente nada de una inundación.
+          --
+          -- Quien la contiene es el limitador de abuso por dirección de origen,
+          -- que corre DELANTE de este plugin. Hasta el issue #83 corría detrás,
+          -- y este comentario afirmaba una protección que no existía: medido,
+          -- 25 claves aleatorias con la cuota agotada daban cero 429 y llegaban
+          -- las 25 hasta `auth`.
+          --
           -- Se mantiene corta para que una clave recién emitida no arrastre un
           -- rechazo previo.
           { negative_cache_ttl = {
