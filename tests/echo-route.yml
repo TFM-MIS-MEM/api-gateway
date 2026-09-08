@@ -1,10 +1,18 @@
 # Fragmento de configuración que solo existe durante las pruebas de extremo a
-# extremo. `tests/identity-headers.sh` lo concatena a kong.yml, empuja el
-# resultado por la Admin API y restaura kong.yml al terminar, de modo que
-# ninguna ruta de prueba llega al despliegue.
+# extremo. `tests/identity-headers.sh` y `tests/rate-limit.sh` lo concatenan a
+# kong.yml, empujan el resultado por la Admin API y restauran kong.yml al
+# terminar, de modo que ninguna ruta de prueba llega al despliegue.
 #
 # Se declara aparte, y no dentro de kong.yml comentado, para que no haya dos
 # copias de la misma configuración que puedan divergir.
+#
+# Los límites de estas rutas son DELIBERADAMENTE BAJOS. Los de kong.yml son 600
+# y 300 por minuto, y agotarlos exigiría cientos de peticiones dentro de una
+# ventana fija de un minuto, que es justo el tipo de prueba que rueda a mitad y
+# falla un día de cada diez. Aquí se ejerce el MECANISMO —el orden de los
+# plugins, la clave del contador, la forma de la respuesta— con números que se
+# agotan en seis peticiones. La medición sobre los números reales y la ruta real
+# es `tests/medicion-83.sh`, que no es un test y no afirma nada.
 
   - name: echo-service
     url: http://echo-service:8080
@@ -25,7 +33,10 @@
                   - X-Auth-Channel
                   - X-Role
 
-      # Equivale a pricing-route: comprueba el saneado del plugin.
+      # Equivale a pricing-route: space-auth + limitador por cuenta, en el mismo
+      # orden y con los mismos plugins que el despliegue. Comprueba el saneado,
+      # que el limitador por cuenta no se evade falsificando X-Account-Id, y que
+      # la respuesta lleva un solo juego de cabeceras del limitador.
       - name: echo-route
         paths:
           - /v1/echo
@@ -36,3 +47,41 @@
               auth_endpoint: http://auth-service:3000/v1/auth/validate-key
               internal_secret: "{vault://env/space-auth-internal-secret}"
               jwt_secret: "{vault://env/space-auth-jwt-secret}"
+          - name: account-rate-limit
+            config:
+              minute: 5
+
+      # El limitador de abuso, con el límite bajado para poder agotarlo. La
+      # instancia por ruta SUSTITUYE a la global —dos instancias del mismo plugin
+      # no se acumulan, está medido en el cuerpo del PR—, así que esta ruta queda
+      # con un único limitador de abuso de 5/min y no toca la cuota de las demás.
+      # La prioridad es la misma (910), de modo que el orden respecto de
+      # space-auth (900) es exactamente el del despliegue.
+      - name: echo-flood-route
+        paths:
+          - /v1/echo-flood
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 5
+              policy: local
+              limit_by: ip
+          - name: space-auth
+            config:
+              auth_endpoint: http://auth-service:3000/v1/auth/validate-key
+              internal_secret: "{vault://env/space-auth-internal-secret}"
+              jwt_secret: "{vault://env/space-auth-jwt-secret}"
+
+      # Limitador por cuenta SIN space-auth delante: la configuración incorrecta
+      # que el plugin tiene que delatar. Sin la cabecera de identidad, el
+      # `rate-limiting` de Kong contaría por dirección de origen sin decir nada;
+      # éste responde 500. La ruta existe para fijar esa diferencia.
+      - name: echo-misconfig-route
+        paths:
+          - /v1/echo-misconfig
+        strip_path: false
+        plugins:
+          - name: account-rate-limit
+            config:
+              minute: 5
