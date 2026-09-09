@@ -83,15 +83,21 @@ if [ "${MEDIR_AUTH:-0}" = "1" ]; then
 fi
 
 echo "=== 1. agotar la cuota de esta IP en la sonda pública $PROBE ==="
-# Si la ventana está a punto de rodar no da tiempo a la fase 2. Se vuelve a
-# agotar en vez de esperar: `agotar` itera hasta ver un 429, así que si la
-# ventana rueda a mitad, la siguiente llamada agota ya la ventana nueva.
+# Si la ventana está a punto de rodar no da tiempo a la fase 2. Hay que ESPERAR
+# a que ruede: volver a llamar a `agotar` no sirve de nada, porque itera hasta
+# ver un 429 y con la cuota ya gastada devuelve a la primera sin enviar ninguna
+# —así salía un «0 peticiones hasta el 429» que no medía nada—.
 for intento in 1 2 3; do
   ENVIADAS=$(agotar) || exit 1
   MARGEN=$(retry)
   [ "${MARGEN:-0}" -ge 20 ] && break
-  echo "  ventana con solo ${MARGEN}s de margen; se reagota (intento $intento)"
+  echo "  ventana con solo ${MARGEN}s de margen; se espera a que ruede (intento $intento)"
+  sleep $((MARGEN + 1))
 done
+if [ "${MARGEN:-0}" -lt 20 ]; then
+  echo "ABORTADO: tres intentos sin conseguir una ventana con margen" >&2
+  exit 1
+fi
 echo "  peticiones hasta el 429: $ENVIADAS"
 echo "  margen de ventana: ${MARGEN}s"
 echo -n "  sonda pública $PROBE -> "; codigo; echo
