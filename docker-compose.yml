@@ -14,7 +14,15 @@ services:
       KONG_PROXY_ERROR_LOG: "/dev/stderr"
       KONG_ADMIN_ERROR_LOG: "/dev/stderr"
       KONG_ADMIN_LISTEN: "0.0.0.0:8001, 0.0.0.0:8444 ssl"
-      KONG_PLUGINS: "bundled,space-auth"
+    # Diccionario compartido del limitador por cuenta. Kong OSS no deja que un
+    # plugin declare el suyo, así que se inyecta como directiva de nginx. Si
+    # falta, account-rate-limit responde 500 en lugar de dejar pasar sin contar.
+    #
+    # ⚠️ KONG_TRUSTED_IPS se deja SIN configurar a propósito: con ella,
+    # `kong.client.get_forwarded_ip()` haría caso de X-Forwarded-For y la clave
+    # del limitador de abuso pasaría a escribirla el cliente. Ver kong.yml.
+      KONG_PLUGINS: "bundled,space-auth,account-rate-limit"
+      KONG_NGINX_HTTP_LUA_SHARED_DICT: "account_rate_limit 12m"
     # Los secretos del plugin se resuelven con el vault de entorno de Kong
     # ({vault://env/space-auth-*}). Kong los lee de `environ` al inicializar el
     # worker: cambiarlos exige recrear el contenedor.
