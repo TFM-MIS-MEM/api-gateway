@@ -78,6 +78,19 @@ print('|'.join([h.get('x-account-id','-'), h.get('x-auth-channel','-'),
 # Extrae un campo del cuerpo ErrorReport de la respuesta.
 codigo_error() { python3 -c "import json,sys;print(json.load(sys.stdin).get('code','-'))"; }
 
+# Aborta con ruido. Se usa para todo estado de partida o instrumento que no sea
+# el previsto: un test que se adapta a lo que encuentre es un test que no puede
+# fallar por esa vía, y entonces no vigila nada.
+fatal() { # fatal <qué pasa> <detalle>
+  echo "  ✗ ABORTA: $1"
+  echo "      $2"
+  FAILED=1
+  exit 1
+}
+es_numero() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+estado()  { printf '%s' "$1" | head -1 | awk '{print $2}'; }
+valcab()  { printf '%s' "$2" | grep -i "^$1:" | tr -d ' \r' | cut -d: -f2; }
+
 echo "→ levantando el servicio de eco"
 docker compose -f docker-compose.test.yml up -d >/dev/null
 
@@ -95,33 +108,73 @@ curl -s -X POST "$PROXY/v1/auth/login" -H 'Content-Type: application/json' \
   -d "{\"email\":\"$EMAIL\",\"password\":\"Passw0rd!23\"}" > "$TMP/login.json"
 ACCOUNT=$(python3 -c "import json;print(json.load(open('$TMP/reg.json'))['accountId'])")
 TOKEN=$(python3 -c "import json;print(json.load(open('$TMP/login.json'))['token'])")
+APIKEY=$(python3 -c "import json;print(json.load(open('$TMP/reg.json'))['apiKey'])")
 
 # ---------------------------------------------------------------------------
 echo
 echo "→ A. limitador de abuso: cuenta antes de autenticar (/v1/echo-flood, 5/min)"
 
+# Antes que nada, que el instrumento esté vivo. Más abajo se comprueba que la
+# inundación NO deja líneas nuevas en el registro de `auth`, y el valor esperado
+# de esa comprobación es cero: si `docker logs` fallara —contenedor parado,
+# renombrado, otro controlador de registro— las dos lecturas darían cero, la
+# diferencia sería cero y la comprobación pasaría JUSTO cuando el instrumento
+# está roto. Una llamada con una API KEY válida tiene que moverlo.
+VIVO=$(auth_hits)
+es_numero "$VIVO" || fatal "el recuento del registro de auth no es un número" "obtenido: '$VIVO'"
+codigo "$PROXY/v1/pricing/subscription/status" -H "X-API-Key: $APIKEY" >/dev/null
+MOVIDO=$(( $(auth_hits) - VIVO ))
+[ "$MOVIDO" -ge 1 ] || fatal "el recuento del registro de auth no se mueve con una API KEY válida" \
+  "una validación debería añadir al menos una línea; añadió $MOVIDO. Sin esto, la comprobación de la inundación no puede fallar."
+
 # La ventana del limitador de abuso es fija y va por IP, de modo que dos
 # ejecuciones seguidas dentro del mismo minuto encontrarían la cuota ya gastada
-# por la anterior. En vez de dar por hecho que está limpia —que es como se
-# fabrica un test que falla un día de cada diez— se consulta cuánta queda y, si
-# no queda ninguna, se espera a que la ventana ruede. El bloque se calibra sobre
-# lo que quede, así que el resultado no depende del estado de partida.
+# por la anterior. Se espera a que ruede y se exige el estado EXACTO de partida:
+# la sonda responde 401 y quedan justo LIMITE-1. No se calibra sobre lo que haya
+# —adaptarse a cualquier estado convierte el bloque en un test que no puede
+# fallar—; cualquier otra cosa aborta y dice cuál era.
+LIMITE_FLOOD=5   # el declarado para esta ruta en tests/echo-route.yml
+
 RESP=$(curl -s -D - -o /dev/null "$PROXY/v1/echo-flood")
-if [ "$(printf '%s' "$RESP" | head -1 | awk '{print $2}')" = "429" ]; then
-  ESPERA=$(printf '%s' "$RESP" | grep -i '^retry-after:' | tr -d ' \r' | cut -d: -f2)
-  echo "  (ventana agotada por una ejecución anterior; se esperan $((ESPERA + 1))s)"
-  sleep $((ESPERA + 1))
+CODE=$(estado "$RESP")
+case "$CODE" in
+  401|429) ;;
+  *) fatal "la sonda a /v1/echo-flood responde $CODE" \
+           "se esperaba 401 (queda cuota) o 429 (agotada). ¿Está publicada la ruta de prueba?" ;;
+esac
+
+DECLARADO=$(valcab ratelimit-limit "$RESP")
+[ "$DECLARADO" = "$LIMITE_FLOOD" ] || fatal "el límite efectivo de /v1/echo-flood es $DECLARADO y no $LIMITE_FLOOD" \
+  "tests/echo-route.yml y la constante LIMITE_FLOOD de este script han divergido"
+
+QUEDAN=$(valcab ratelimit-remaining "$RESP")
+es_numero "$QUEDAN" || fatal "la sonda no trae RateLimit-Remaining numérico" "obtenido: '$QUEDAN'"
+
+# Estado de partida limpio = la sonda acaba de consumir la primera del minuto.
+if [ "$QUEDAN" -ne $((LIMITE_FLOOD - 1)) ]; then
+  RESET=$(valcab ratelimit-reset "$RESP")
+  es_numero "$RESET" || fatal "no hay RateLimit-Reset numérico para esperar a la ventana" "obtenido: '$RESET'"
+  [ "$RESET" -le 60 ] || fatal "RateLimit-Reset=$RESET fuera de la ventana de 60 s" "la configuración de la ruta no es la esperada"
+  echo "  (quedan $QUEDAN de $LIMITE_FLOOD; se espera $((RESET + 1))s a que ruede la ventana)"
+  sleep $((RESET + 1))
   RESP=$(curl -s -D - -o /dev/null "$PROXY/v1/echo-flood")
+  CODE=$(estado "$RESP")
+  QUEDAN=$(valcab ratelimit-remaining "$RESP")
+  [ "$CODE" = "401" ] || fatal "tras esperar a la ventana la sonda responde $CODE y no 401" \
+    "la ventana no ha rodado, o la ruta ha dejado de responder lo previsto"
+  [ "$QUEDAN" = "$((LIMITE_FLOOD - 1))" ] || fatal "tras esperar a la ventana quedan $QUEDAN y no $((LIMITE_FLOOD - 1))" \
+    "hay otro llamante consumiendo la cuota de esta IP; la medición no sería fiable"
 fi
-QUEDAN=$(printf '%s' "$RESP" | grep -i '^ratelimit-remaining:' | tr -d ' \r' | cut -d: -f2)
 
 # Sin credencial, el limitador cuenta y space-auth rechaza. Que la respuesta sea
 # 401 y no 429 es lo correcto MIENTRAS quede cuota: es la prueba de que el
 # cambio de orden no ha convertido «sin credencial» en «demasiadas peticiones».
 A_CODES=""
-for _ in $(seq 1 "$QUEDAN"); do A_CODES="$A_CODES$(codigo "$PROXY/v1/echo-flood")"; done
 ESPERADO=""
-for _ in $(seq 1 "$QUEDAN"); do ESPERADO="${ESPERADO}401"; done
+for _ in $(seq 1 "$QUEDAN"); do
+  A_CODES="$A_CODES$(codigo "$PROXY/v1/echo-flood")"
+  ESPERADO="${ESPERADO}401"
+done
 check "las $QUEDAN peticiones sin credencial que caben responden 401 y consumen cuota" \
   "$ESPERADO" "$A_CODES"
 
@@ -157,13 +210,41 @@ check "con la cuota agotada, hasta una credencial válida recibe 429" \
 echo
 echo "→ B. limitador de cuenta: no se evade falsificando X-Account-Id (/v1/echo, 5/min)"
 
-# Lo primero, con el contador de esta ruta aún entero: por el camino legítimo no
-# cambia nada. La petición llega al backend con la identidad que escribe la
-# pasarela, y no con la que falsifica el cliente. Va aquí y no en el bloque D
-# porque las peticiones de más abajo agotan el límite de esta ruta.
+LIMITE_ECHO=5   # el declarado para esta ruta en tests/echo-route.yml
+
+# Misma exigencia que en el bloque A, por el mismo motivo: el contador de cuenta
+# también va en ventana fija, y si rodara a mitad del bloque las respuestas
+# dejarían de ser las previstas. Se exige el estado exacto de partida y margen
+# suficiente para las siete peticiones que quedan; si no lo hay, se espera a que
+# ruede. Nada de adaptarse a lo que haya.
+sonda_echo() {
+  curl -s -D "$TMP/cab" -o "$TMP/cuerpo" "$PROXY/v1/echo" \
+    -H "Authorization: Bearer $TOKEN" -H "X-Account-Id: falsa"
+}
+estado_echo() {
+  QUEDAN_E=$(valcab ratelimit-remaining "$(cat "$TMP/cab")")
+  RESET_E=$(valcab ratelimit-reset "$(cat "$TMP/cab")")
+  es_numero "$QUEDAN_E" || fatal "/v1/echo no trae RateLimit-Remaining numérico" "obtenido: '$QUEDAN_E'"
+  es_numero "$RESET_E"  || fatal "/v1/echo no trae RateLimit-Reset numérico"     "obtenido: '$RESET_E'"
+}
+
+sonda_echo
+estado_echo
+if [ "$QUEDAN_E" -ne $((LIMITE_ECHO - 1)) ] || [ "$RESET_E" -lt 10 ]; then
+  echo "  (quedan $QUEDAN_E de $LIMITE_ECHO con $RESET_E s de ventana; se espera $((RESET_E + 1))s)"
+  sleep $((RESET_E + 1))
+  sonda_echo
+  estado_echo
+  [ "$QUEDAN_E" -eq $((LIMITE_ECHO - 1)) ] || fatal "tras esperar a la ventana quedan $QUEDAN_E y no $((LIMITE_ECHO - 1))" \
+    "el cupo de esta cuenta lo está gastando algo más; la medición no sería fiable"
+  [ "$RESET_E" -ge 10 ] || fatal "tras esperar a la ventana solo quedan $RESET_E s" \
+    "no hay margen para las peticiones del bloque"
+fi
+
+# Esa misma petición vale de comprobación del camino legítimo: llega al backend
+# con la identidad que escribe la pasarela, no con la que falsifica el cliente.
 check "una petición autenticada sigue llegando al backend con su identidad" \
-  "$ACCOUNT|frontend|CUSTOMER" \
-  "$(curl -s "$PROXY/v1/echo" -H "Authorization: Bearer $TOKEN" -H "X-Account-Id: falsa" | visto)"
+  "$ACCOUNT|frontend|CUSTOMER" "$(visto < "$TMP/cuerpo")"
 
 # Un solo juego de cabeceras, el del limitador de cuenta. Los dos limitadores
 # usan los mismos nombres y esta petición atraviesa los dos.
@@ -239,6 +320,12 @@ for _ in 1 2 3; do
     -H 'Origin: http://localhost:3001' -H 'Access-Control-Request-Method: POST'
 done
 REM_DESPUES=$(cabecera ratelimit-remaining "$PROXY$SONDA")
+# Sin las dos lecturas, la resta daría cero y cero NO es el valor esperado, así
+# que la comprobación fallaría; aun así se aborta explícitamente para que el
+# motivo se lea en el sitio y no haya que deducirlo de un «esperado 1, obtenido 0».
+es_numero "$REM_ANTES" && es_numero "$REM_DESPUES" \
+  || fatal "las sondas de $SONDA no traen RateLimit-Remaining numérico" \
+           "antes='$REM_ANTES' después='$REM_DESPUES'"
 # Las dos sondas consumen una cada una; los tres preflights, ninguna.
 check "3 preflights CORS no consumen cuota" \
   "1" "$(( REM_ANTES - REM_DESPUES ))"

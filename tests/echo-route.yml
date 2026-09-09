@@ -50,6 +50,12 @@
           - name: account-rate-limit
             config:
               minute: 5
+              # Ámbito propio. La clave del contador es
+              # <ámbito>:<cuenta>:<ventana>, así que sin esto esta ruta
+              # compartiría cupo con pricing-route y cualquier petición del test
+              # a /v1/pricing descontaría del cupo de aquí. Es lo que hacía que
+              # el bloque B pasara o fallara según dónde cayera la ventana.
+              scope: test-echo
 
       # El limitador de abuso, con el límite bajado para poder agotarlo. La
       # instancia por ruta SUSTITUYE a la global —dos instancias del mismo plugin
@@ -85,3 +91,4 @@
           - name: account-rate-limit
             config:
               minute: 5
+              scope: test-misconfig

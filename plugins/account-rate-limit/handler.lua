@@ -99,8 +99,11 @@ function AccountRateLimitHandler:access(conf)
   -- una ráfaga del doble del límite a caballo del borde —el final de una ventana
   -- y el principio de la siguiente—. Es una limitación conocida de la ventana
   -- fija y se corrige con la ventana deslizante de I6, no aquí.
+  -- El ámbito va en la clave: todas las rutas que lo compartan comparten cupo.
+  -- Un contador por ruta sería un límite económico que se evade repartiendo las
+  -- llamadas entre endpoints.
   local now = ngx.time()
-  local key = account .. ":" .. floor(now / WINDOW)
+  local key = conf.scope .. ":" .. account .. ":" .. floor(now / WINDOW)
 
   -- El TTL de creación deja caducar la entrada sola: no hay que barrer nada, y
   -- el diccionario no crece con las cuentas que dejan de llamar.

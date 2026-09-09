@@ -34,6 +34,21 @@ return {
               required = true,
           } },
 
+          -- Ámbito del contador. La clave es `<ámbito>:<cuenta>:<ventana>`, de
+          -- modo que TODAS las rutas que compartan ámbito comparten cupo. Es lo
+          -- correcto para un límite económico: la tasa es de la cuenta, no de
+          -- la ruta, y con un contador por ruta bastaría repartir las llamadas
+          -- entre endpoints para multiplicar el cupo.
+          --
+          -- Es además el gancho de I6: separar inferencia de gestión, que la
+          -- oferta publica como dos tasas distintas (3/10, 5/50, 20/200), es
+          -- montar cada grupo de rutas con su propio ámbito.
+          { scope = {
+              type = "string",
+              default = "global",
+              required = true,
+          } },
+
           -- Diccionario compartido donde vive el contador. Kong OSS no permite
           -- declararlo desde el plugin: se inyecta como directiva de nginx con
           -- KONG_NGINX_HTTP_LUA_SHARED_DICT. Si falta, el plugin responde 500.
