@@ -12,8 +12,9 @@ la identidad hacia los microservicios, que no son alcanzables por otra vía.
 | `/v1/auth` | `auth-service:3000` | ninguna. El registro y el inicio de sesión son públicos, y las operaciones de cuenta las protege el propio servicio |
 | `/v1/pricing/webhooks/stripe` | `pricing-service:3000` | ninguna. El evento se autentica con su propia firma, que valida el servicio |
 | `/v1/pricing` | `pricing-service:3000` | `space-auth` + `account-rate-limit` |
+| `/v1/fr/commercial` | `fr-commercial-service:8000` | `space-auth` + `account-rate-limit`, igual que `/v1/pricing` y con el mismo ámbito (`global`) hasta F10. Una petición que solo lleve `enrollmentToken` se corta con `401`: F11 (docs#43) es trabajo futuro |
 
-`strip_path: false` en las cuatro: el microservicio recibe la ruta completa, la
+`strip_path: false` en las cinco: el microservicio recibe la ruta completa, la
 misma que declara su especificación OpenAPI.
 
 Las rutas más largas ganan la resolución sobre las más cortas, que es lo que
@@ -155,18 +156,28 @@ resolver, y que aquí solo queda anotado:
 
 ## Pruebas de extremo a extremo
 
-`tests/cors-preflight.sh` comprueba el preflight CORS de las cuatro rutas sin
+`tests/cors-preflight.sh` comprueba el preflight CORS de las cinco rutas sin
 tocar la configuración. Un preflight no lleva credenciales: si el plugin de
 autenticación se ejecutara antes que el de CORS lo respondería con `401` y
 ningún navegador podría llamar a la API, aunque desde la terminal todo pareciera
 correcto. Fija además que `X-API-Key` **no** está entre las cabeceras
-permitidas, para que revertir esa decisión sea deliberado.
+permitidas, en `/v1/pricing` y en `/v1/fr/commercial`, para que revertir esa
+decisión sea deliberado.
 
 `docker-compose.test.yml` levanta `echo-service`, que devuelve las cabeceras que
 recibe. Es lo que permite comprobar que la pasarela borra las cabeceras de
 identidad del cliente y escribe las suyas. Su ruta de Kong no vive en
 `kong.yml`: se empuja por la Admin API y se restaura al terminar. El
 procedimiento está en la cabecera de ese fichero.
+
+`fr-commercial` confía en esas cabeceras sin verificar nada, así que su ruta se
+comprueba dos veces en `tests/identity-headers.sh`: con el upstream cambiado por
+el de eco y la ruta y sus plugins intactos, para ver qué cabeceras llegan; y
+contra fr real con `kong.yml` tal cual, emparejando cada `404` de una cuenta que
+se declara otra con el `200` de la dueña sobre la misma galería. Requiere fr
+levantado. `KONG_YML=<copia>` ejecuta las comprobaciones contra otra
+configuración ---por ejemplo, una sin saneado, para ver que el test sabe
+fallar---; al salir se restaura siempre `kong.yml`.
 
 `tests/rate-limit.sh` cubre los dos limitadores: que el de abuso cuenta antes de
 autenticar y corta la inundación de credenciales inventadas sin que llegue a

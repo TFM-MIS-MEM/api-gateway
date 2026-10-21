@@ -99,23 +99,44 @@ services:
             config:
               minute: 300
 
-  # Commercial FR API — pendiente de implementación (Issue 12)
-  # - name: commercial-api
-  #   url: http://commercial-api:8000
-  #   routes:
-  #     - name: commercial-route
-  #       paths:
-  #         - /v1/fr/commercial
-  #       strip_path: false
-  #       plugins:
-  #         - name: space-auth
-  #           config:
-  #             auth_endpoint: http://auth-service:3000/v1/auth/validate-key
-  #             internal_secret: "{vault://env/space-auth-internal-secret}"
-  #             jwt_secret: "{vault://env/space-auth-jwt-secret}"
-  #         - name: account-rate-limit
-  #           config:
-  #             minute: 300
+  # ---------------------------------------------------------------------------
+  # FR Commercial — galerías, identidades, rostros e inferencia.
+  #
+  # El servicio confía en X-Account-Id, X-Auth-Channel y X-Role SIN verificar
+  # nada (src/core/identity.py de fr-commercial): esta ruta es lo único que
+  # impide que un cliente se declare la cuenta que quiera. La configuración es
+  # la de pricing-route, plugin a plugin; una diferencia entre hermanas es un
+  # fallo, no una variante. `tests/identity-headers.sh` la ejerce tal cual.
+  #
+  # Cinco operaciones del contrato admiten además `enrollmentToken`
+  # (createIdentity, addFace, verifyAgainstIdentity y las dos de liveness).
+  # space-auth no lo resuelve, así que hoy una petición que solo lleve el token
+  # muere aquí con 401. Es coherente mientras F11 sea trabajo futuro
+  # (TFM-MIS-MEM/docs#43); cuando lo admita, esta ruta tendrá que cambiar.
+  # ---------------------------------------------------------------------------
+  - name: fr-commercial-service
+    url: http://fr-commercial-service:8000
+    routes:
+      - name: fr-commercial-route
+        paths:
+          - /v1/fr/commercial
+        strip_path: false
+        plugins:
+          - name: space-auth
+            config:
+              auth_endpoint: http://auth-service:3000/v1/auth/validate-key
+              internal_secret: "{vault://env/space-auth-internal-secret}"
+              jwt_secret: "{vault://env/space-auth-jwt-secret}"
+              jwt_issuer: auth-microservice
+              cache_ttl: 60
+              negative_cache_ttl: 10
+
+          # Ámbito `global`, el mismo que pricing-route: las dos rutas comparten
+          # cupo por cuenta. Separar ámbitos por grupo de rutas es decisión de
+          # tarifa (inferencia frente a gestión) y la toma F10 (docs#42).
+          - name: account-rate-limit
+            config:
+              minute: 300
 
 plugins:
 
