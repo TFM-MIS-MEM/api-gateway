@@ -12,7 +12,7 @@ la identidad hacia los microservicios, que no son alcanzables por otra vía.
 | `/v1/auth` | `auth-service:3000` | ninguna. El registro y el inicio de sesión son públicos, y las operaciones de cuenta las protege el propio servicio |
 | `/v1/pricing/webhooks/stripe` | `pricing-service:3000` | ninguna. El evento se autentica con su propia firma, que valida el servicio |
 | `/v1/pricing` | `pricing-service:3000` | `space-auth` + `account-rate-limit` |
-| `/v1/fr/commercial` | `fr-commercial-service:8000` | `space-auth` + `account-rate-limit`, igual que `/v1/pricing` y con el mismo ámbito (`global`) hasta F10. Una petición que solo lleve `enrollmentToken` se corta con `401`: F11 (docs#43) es trabajo futuro |
+| `/v1/fr/commercial` | `fr-commercial-service:8000` | `space-auth` + `account-rate-limit`, igual que `/v1/pricing` y con el mismo ámbito (`global`). Los límites del plan no los aplica la pasarela, sino `fr-commercial` con SPACE (F10, docs#42). Una petición que solo lleve `enrollmentToken` se corta con `401`: F11 (docs#43) es trabajo futuro |
 
 `strip_path: false` en las cinco: el microservicio recibe la ruta completa, la
 misma que declara su especificación OpenAPI.
@@ -45,8 +45,8 @@ Respuestas propias de la pasarela, con el cuerpo del patrón *Error Report*:
 | `403` | credencial válida de cuenta suspendida |
 | `503` | `auth` inalcanzable al validar una API KEY |
 
-Que esas respuestas no las declare el contrato de los servicios está recogido en
-`TFM-MIS-MEM/docs#68`.
+Los contratos de los servicios las declaran desde `TFM-MIS-MEM/docs#68`; el
+`403` y el `503` solo pueden darse en el canal de API.
 
 Verificar el emisor además de la firma no es redundante: `JWT_SECRET` es un
 único valor de configuración, y si alguna vez firmara otra cosa —un enlace de
@@ -57,7 +57,8 @@ aceptaría como sesión y propagaría el `sub` que llevase dentro.
 consecuencia directa del diseño: con `auth` parado, un JWT válido sigue pasando
 —se verifica por firma— y una API KEY recibe `503`. Ese es el precio de no
 consultar al servicio en cada petición, y su contrapartida es la ventana de
-revocación de hasta 60 minutos del JWT.
+revocación del JWT: hasta su caducidad, `JWT_EXPIRES_IN` de `auth`, entre 5
+minutos y 2 horas.
 
 ## Límite de peticiones — dos limitadores
 
@@ -125,10 +126,10 @@ huecos, mensaje e identificador de petición, y no hay hueco para más. Se sigue
 `TFM-MIS-MEM/docs#82` y no se arregla aquí; que el propio sí lo cumpla estrecha
 esa divergencia en lugar de cerrarla.
 
-### Limitaciones conocidas, que hereda I6
+### Limitaciones conocidas
 
-Los números y la mecánica de este sustrato son provisionales. Lo que I6 tiene que
-resolver, y que aquí solo queda anotado:
+I6 (`TFM-MIS-MEM/docs#58`) se cerró como obsoleto con la tarifa definitiva. Lo
+que queda de él sigue en `TFM-MIS-MEM/docs#131`, y aquí solo queda anotado:
 
 - **Ventana fija alineada al reloj** en los dos limitadores: admite una ráfaga
   del doble del límite a caballo del borde de la ventana. Lo corrige una ventana
@@ -137,16 +138,12 @@ resolver, y que aquí solo queda anotado:
   procesos de trabajo de un mismo Kong, pero **con varias réplicas el límite
   efectivo se multiplica por el número de réplicas**. Hay que pasar a Redis
   antes de que los números signifiquen algo.
-- **Los números no son los de la oferta.** El pricing publica tasas **por
-  segundo y por plan** —3/10, 5/50 y 20/200—, y aplicarlas exige conocer el plan
-  de la cuenta, que la pasarela hoy no evalúa. Los 600 y 300 por minuto de este
-  sustrato quedan **muy por debajo** de lo publicado: 600/min son 10/s, de modo
-  que un cliente Business haciendo gestión a su tasa publicada de 200/s toparía
-  con el limitador de abuso al 5 % de lo que ha contratado. Hoy no lo nota nadie
-  porque nada aplica planes, pero reconciliar un limitador **previo a la
-  autenticación** con tasas que dependen del plan es precisamente el trabajo de
-  I6: el de abuso no puede conocer el plan, porque corre antes de saber quién
-  llama.
+- **Los límites del plan no son de la pasarela.** La tarifa limita unidades de
+  consumo por minuto, hora y mes, y los aplica `fr-commercial` con SPACE (F10,
+  `TFM-MIS-MEM/docs#42`): la pasarela no conoce el plan, y el limitador de abuso
+  no podría conocerlo, porque corre antes de saber quién llama. Los 600 y 300 por
+  minuto de aquí son protección operativa, sin valores decididos ni derivados de
+  la medición de capacidad.
 - **`auth` tiene además su propio limitador**, de 100 peticiones cada 15 minutos
   por IP, montado sobre `login`, `forgot-password` y `reset-password`. Esas tres
   rutas quedan con **dos limitadores en repositorios distintos**. No se pisan: el
@@ -248,5 +245,5 @@ docker exec kong-gateway getent hosts auth-service
 |---|---|
 | 8000 | Proxy HTTP — `curl http://localhost:8000/v1/...` |
 | 8443 | Proxy HTTPS |
-| 8001 | Admin API — **solo desarrollo** |
+| 8001 | Admin API, sin credencial. **La publican los dos compose en todas las interfaces, también el de producción** (`TFM-MIS-MEM/docs#114`) |
 | 8444 | Admin API HTTPS |
